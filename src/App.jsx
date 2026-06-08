@@ -2,11 +2,18 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { createClient } from 'genlayer-js';
 import { studionet } from 'genlayer-js/chains';
+import { http } from 'viem';
 import CosmicBackground from './CosmicBackground';
 import { getAgentAvatar, getAgentHead, getAgentMeta, MASCOTS } from './AgentAvatars';
 import './App.css';
 
 const CONTRACT_ADDRESS = '0xA3af2C172615871e285012976A1A65914882a314';
+
+// Read-only client — HTTP directo al RPC, sin MetaMask
+const readClient = createClient({
+  chain: studionet,
+  transport: http('https://studio.genlayer.com/api'),
+});
 
 const AGENT_NAMES = ['The Hawk', 'The Owl', 'The Wolf', 'The Fox', 'The Bear'];
 
@@ -318,22 +325,21 @@ function App() {
     if (!account) return;
     setLoading(true);
     try {
-      const client = getClient();
-      const lb = await client.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_leaderboard', args: [] });
+      const lb = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_leaderboard', args: [] });
       setLeaderboard(parseLeaderboard(lb));
 
-      const pool = await client.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_pool_status', args: [] });
+      const pool = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_pool_status', args: [] });
       setPoolStatus(parseMultilineString(pool));
 
       try {
-        const canExec = await client.readContract({ address: CONTRACT_ADDRESS, functionName: 'can_execute_now', args: [] });
+        const canExec = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'can_execute_now', args: [] });
         const [state, secs] = String(canExec).split(':');
         if (state === 'READY') { setCountdown(0); setCanExecute(true); }
         else { setCountdown(parseInt(secs) || 0); setCanExecute(false); }
       } catch (e) { setCountdown(0); setCanExecute(true); }
 
       try {
-        const bets = await client.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_active_bets_summary', args: [] });
+        const bets = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_active_bets_summary', args: [] });
         setActiveBets(bets);
         setPlayersCount(parseBettors(bets));
       } catch (e) {}
@@ -341,7 +347,7 @@ function App() {
       const stats = {};
       for (let i = 0; i < 5; i++) {
         try {
-          const a = await client.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_agent', args: [String(i)] });
+          const a = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_agent', args: [String(i)] });
           stats[i] = parseAgent(a);
         } catch (e) {}
       }
@@ -358,8 +364,7 @@ function App() {
     if (!account) { setStatus('Connect wallet first'); return; }
     setLoading(true);
     try {
-      const client = getClient();
-      const data = await client.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_agent', args: [agentId] });
+      const data = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_agent', args: [agentId] });
       setAgentDetail(parseAgent(data));
       setStatus('Agent loaded');
     } catch (err) { setStatus('Error ' + err.message); }
@@ -399,13 +404,12 @@ function App() {
     if (!account) { setStatus('Connect wallet first'); return; }
     setLoading(true);
     try {
-      const client = getClient();
-      const count = await client.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_round_count', args: [] });
+      const count = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_round_count', args: [] });
       const total = Number(count);
       const rounds = [];
       const start = Math.max(0, total - 5);
       for (let i = total - 1; i >= start; i--) {
-        const data = await client.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_round', args: [String(i)] });
+        const data = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_round', args: [String(i)] });
         rounds.push({ id: i, data });
       }
       setRoundHistory(rounds);
@@ -418,10 +422,9 @@ function App() {
     if (!account) { setStatus('Connect wallet first'); return; }
     setLoading(true);
     try {
-      const client = getClient();
-      const bets = await client.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_my_bets', args: [account] });
+      const bets = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_my_bets', args: [account] });
       setMyBets(bets);
-      const profile = await client.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_user_profile', args: [account] });
+      const profile = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_user_profile', args: [account] });
       setUserProfile(parseMultilineString(profile));
       setStatus('Profile loaded');
     } catch (err) { setStatus('Error ' + err.message); }
