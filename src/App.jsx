@@ -2,17 +2,15 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { createClient } from 'genlayer-js';
 import { studionet } from 'genlayer-js/chains';
-import { http } from 'viem';
 import CosmicBackground from './CosmicBackground';
 import { getAgentAvatar, getAgentHead, getAgentMeta, MASCOTS } from './AgentAvatars';
 import './App.css';
 
-const CONTRACT_ADDRESS = '0xA3af2C172615871e285012976A1A65914882a314';
+const CONTRACT_ADDRESS = '0x7F0F8e6246495151b0E0d7D865941d8073CE5944';
 
-// Read-only client — HTTP directo al RPC, sin MetaMask
+// Read-only client — sin MetaMask, usa el RPC del chain por defecto
 const readClient = createClient({
   chain: studionet,
-  transport: http('https://studio.genlayer.com/api'),
 });
 
 const AGENT_NAMES = ['The Hawk', 'The Owl', 'The Wolf', 'The Fox', 'The Bear'];
