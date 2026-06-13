@@ -6,7 +6,7 @@ import CosmicBackground from './CosmicBackground';
 import { getAgentAvatar, getAgentHead, getAgentMeta, MASCOTS } from './AgentAvatars';
 import './App.css';
 
-const CONTRACT_ADDRESS = '0x7F0F8e6246495151b0E0d7D865941d8073CE5944';
+const CONTRACT_ADDRESS = '0x811792761D100A38aD9291dA04A9d422f3f85290';
 
 // Read-only client — sin MetaMask, usa el RPC del chain por defecto
 const readClient = createClient({
@@ -313,11 +313,92 @@ function App() {
     }
   };
 
-  const getClient = () => createClient({
-    chain: studionet,
-    account: account,
-    transport: { custom: window.ethereum },
-  });
+  useEffect(() => {
+    if (!window.ethereum) return;
+
+    // Restaurar la cuenta al cargar la pagina sin pedir confirmacion
+    window.ethereum.request({ method: 'eth_accounts' })
+      .then((accounts) => {
+        if (accounts && accounts.length > 0) {
+          setAccount(accounts[0]);
+        }
+      })
+      .catch(() => {});
+
+    // Escuchar cambios de cuenta
+    const handleAccountsChanged = (accounts) => {
+      if (!accounts || accounts.length === 0) {
+        setAccount(null);
+        setStatus('Wallet disconnected');
+      } else {
+        setAccount(accounts[0]);
+        setStatus(`Switched to ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`);
+      }
+    };
+
+    // Escuchar cambios de chain
+    const handleChainChanged = () => {
+      window.location.reload();
+    };
+
+    window.ethereum.on('accountsChanged', handleAccountsChanged);
+    window.ethereum.on('chainChanged', handleChainChanged);
+
+    return () => {
+      if (window.ethereum.removeListener) {
+        window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+        window.ethereum.removeListener('chainChanged', handleChainChanged);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!account) return;
+    const syncTimer = setInterval(async () => {
+      try {
+        const canExec = await readClient.readContract({
+          address: CONTRACT_ADDRESS,
+          functionName: 'can_execute_now',
+          args: []
+        });
+        const [state, secs] = String(canExec).split(':');
+        if (state === 'READY') {
+          setCountdown(0);
+          setCanExecute(true);
+        } else {
+          setCountdown(parseInt(secs) || 0);
+          setCanExecute(false);
+        }
+      } catch (e) {
+        console.warn('Countdown sync failed', e);
+      }
+    }, 30000);
+    return () => clearInterval(syncTimer);
+  }, [account]);
+
+  const getClient = async () => {
+    let currentAccount = account;
+
+    if (window.ethereum) {
+      try {
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts && accounts.length > 0) {
+          currentAccount = accounts[0];
+          if (currentAccount !== account) {
+            setAccount(currentAccount);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch current account', err);
+      }
+    }
+
+    return createClient({
+      chain: studionet,
+      account: currentAccount,
+      transport: { custom: window.ethereum },
+    });
+  };
 
   const loadAllData = async () => {
     if (!account) return;
@@ -374,7 +455,7 @@ function App() {
     setLoading(true);
     setStatus(`Placing bet on ${AGENT_NAMES[parseInt(betAgentId)]}...`);
     try {
-      const client = getClient();
+      const client = await getClient();
       const txHash = await client.writeContract({ address: CONTRACT_ADDRESS, functionName: 'place_bet', args: [betAgentId] });
       await client.waitForTransactionReceipt({ hash: txHash, retries: 60, interval: 5000 });
       setStatus(`Bet placed on ${AGENT_NAMES[parseInt(betAgentId)]}!`);
@@ -389,7 +470,7 @@ function App() {
     setLoading(true);
     setStatus('Executing round, AI agents are deciding...');
     try {
-      const client = getClient();
+      const client = await getClient();
       const txHash = await client.writeContract({ address: CONTRACT_ADDRESS, functionName: 'execute_round', args: [] });
       await client.waitForTransactionReceipt({ hash: txHash, retries: 120, interval: 5000 });
       setStatus('Round executed successfully!');
@@ -402,17 +483,57 @@ function App() {
     if (!account) { setStatus('Connect wallet first'); return; }
     setLoading(true);
     try {
-      const count = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_round_count', args: [] });
-      const total = Number(count);
+      let total = 0;
+      try {
+        const count = await readClient.readContract({
+          address: CONTRACT_ADDRESS,
+          functionName: 'get_round_count',
+          args: []
+        });
+        total = Number(count);
+        if (isNaN(total) || total < 0) total = 0;
+      } catch (countErr) {
+        console.error('Failed to read round count', countErr);
+        setStatus('Could not read round count. Contract may not be initialized.');
+        setLoading(false);
+        return;
+      }
+
+      if (total === 0) {
+        setRoundHistory([]);
+        setStatus('No rounds executed yet. Be the first to execute a round.');
+        setLoading(false);
+        return;
+      }
+
       const rounds = [];
       const start = Math.max(0, total - 5);
+
       for (let i = total - 1; i >= start; i--) {
-        const data = await readClient.readContract({ address: CONTRACT_ADDRESS, functionName: 'get_round', args: [String(i)] });
-        rounds.push({ id: i, data });
+        try {
+          const data = await readClient.readContract({
+            address: CONTRACT_ADDRESS,
+            functionName: 'get_round',
+            args: [String(i)]
+          });
+          if (data && !String(data).includes('not found')) {
+            rounds.push({ id: i, data });
+          }
+        } catch (roundErr) {
+          console.warn(`Failed to load round ${i}`, roundErr);
+        }
       }
+
       setRoundHistory(rounds);
-      setStatus(`Loaded ${rounds.length} recent rounds`);
-    } catch (err) { setStatus('Error ' + err.message); }
+      if (rounds.length === 0) {
+        setStatus('Rounds counter shows ' + total + ' but none could be loaded.');
+      } else {
+        setStatus(`Loaded ${rounds.length} recent rounds`);
+      }
+    } catch (err) {
+      setStatus('Error ' + err.message);
+      setRoundHistory([]);
+    }
     setLoading(false);
   };
 
@@ -434,7 +555,7 @@ function App() {
     if (!claimRoundId) { setStatus('Enter a round ID'); return; }
     setLoading(true);
     try {
-      const client = getClient();
+      const client = await getClient();
       const txHash = await client.writeContract({ address: CONTRACT_ADDRESS, functionName: 'claim_winnings', args: [claimRoundId] });
       await client.waitForTransactionReceipt({ hash: txHash, retries: 60, interval: 5000 });
       setStatus(`Winnings claimed for Round ${claimRoundId}`);
