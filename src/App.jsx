@@ -341,13 +341,30 @@ function App() {
       return;
     }
     try {
-      await ensureStudionet(window.ethereum);
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       setAccount(accounts[0]);
+      await ensureStudionet(window.ethereum);
       setStatus(`Connected ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`);
     } catch (err) {
       setStatus('Error connecting wallet ' + err.message);
     }
+  };
+
+  const disconnectWallet = async () => {
+    if (window.ethereum) {
+      try {
+        // EIP-2255: revoca el permiso si la wallet lo soporta (no todas lo hacen).
+        await window.ethereum.request({
+          method: 'wallet_revokePermissions',
+          params: [{ eth_accounts: {} }],
+        });
+      } catch (err) {
+        // Sin soporte para revoke programatico: el disconnect del lado de la app
+        // sigue funcionando igual, solo que la wallet puede recordar el permiso.
+      }
+    }
+    setAccount(null);
+    setStatus('Disconnected. If your wallet still shows this site as connected, disconnect it from the wallet extension too.');
   };
 
   useEffect(() => {
@@ -647,6 +664,13 @@ function App() {
               <div className="wallet-pill">
                 <div className="status-dot"></div>
                 {account.slice(0, 6)}...{account.slice(-4)}
+                <span
+                  onClick={disconnectWallet}
+                  title="Disconnect"
+                  style={{ cursor: 'pointer', marginLeft: '4px', opacity: 0.6 }}
+                >
+                  ×
+                </span>
               </div>
             )}
           </div>
