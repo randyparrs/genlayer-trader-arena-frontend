@@ -8,6 +8,42 @@ import './App.css';
 
 const CONTRACT_ADDRESS = '0x811792761D100A38aD9291dA04A9d422f3f85290';
 
+// Datos oficiales de Studionet (verificados con `genlayer network info`, no adivinados).
+// chainId 61999 = 0xF22F.
+const STUDIONET_PARAMS = {
+  chainId: '0xF22F',
+  chainName: 'Genlayer Studio Network',
+  nativeCurrency: { name: 'GEN Token', symbol: 'GEN', decimals: 18 },
+  rpcUrls: ['https://studio.genlayer.com/api'],
+  blockExplorerUrls: ['https://genlayer-explorer.vercel.app'],
+};
+
+// Verifica que la wallet este en Studionet; si no, intenta cambiar, y si la red
+// no esta agregada, la agrega. Sin esto, cualquier escritura falla con
+// "chainId should be same as current chainId" cuando la wallet esta en otra red.
+async function ensureStudionet(ethereum) {
+  const currentChainId = await ethereum.request({ method: 'eth_chainId' });
+  if (String(currentChainId).toLowerCase() === STUDIONET_PARAMS.chainId.toLowerCase()) {
+    return;
+  }
+  try {
+    await ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: STUDIONET_PARAMS.chainId }],
+    });
+  } catch (switchErr) {
+    // 4902 = la red no esta agregada en la wallet todavia
+    if (switchErr.code === 4902) {
+      await ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [STUDIONET_PARAMS],
+      });
+    } else {
+      throw switchErr;
+    }
+  }
+}
+
 // Read-only client — sin MetaMask, usa el RPC del chain por defecto
 const readClient = createClient({
   chain: studionet,
@@ -305,6 +341,7 @@ function App() {
       return;
     }
     try {
+      await ensureStudionet(window.ethereum);
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       setAccount(accounts[0]);
       setStatus(`Connected ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`);
@@ -380,6 +417,11 @@ function App() {
     let currentAccount = account;
 
     if (window.ethereum) {
+      try {
+        await ensureStudionet(window.ethereum);
+      } catch (err) {
+        console.warn('Could not switch to Studionet', err);
+      }
       try {
         const accounts = await window.ethereum.request({ method: 'eth_accounts' });
         if (accounts && accounts.length > 0) {
